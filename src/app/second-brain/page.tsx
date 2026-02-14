@@ -29,10 +29,10 @@ const CATEGORIES: Memory["category"][] = [
   "Other",
 ];
 
-const STORAGE_KEY = "vox-second-brain-memories-v1";
-
 export default function SecondBrainPage() {
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<Memory["category"]>("YouTube");
   const [tagsInput, setTagsInput] = useState("");
@@ -42,28 +42,31 @@ export default function SecondBrainPage() {
     "All",
   );
 
-  // Load from localStorage
+  // Load from API on mount
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Memory[];
-      setMemories(parsed);
-    } catch (err) {
-      console.error("Failed to load memories", err);
+    async function load() {
+      try {
+        const res = await fetch("/api/memories");
+        if (!res.ok) throw new Error("Failed to fetch memories");
+        const json = (await res.json()) as { memories: any[] };
+        const mapped: Memory[] = (json.memories || []).map((m) => ({
+          id: m.id,
+          title: m.title,
+          category: (m.category || "Other") as Memory["category"],
+          tags: Array.isArray(m.tags) ? m.tags : [],
+          content: m.content || "",
+          createdAt: m.created_at || new Date().toISOString(),
+        }));
+        setMemories(mapped);
+      } catch (err) {
+        console.error("Failed to load memories", err);
+      } finally {
+        setIsLoading(false);
+      }
     }
-  }, []);
 
-  // Persist to localStorage
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(memories));
-    } catch (err) {
-      console.error("Failed to save memories", err);
-    }
-  }, [memories]);
+    load();
+  }, []);
 
   const filteredMemories = useMemo(() => {
     return memories
@@ -80,7 +83,7 @@ export default function SecondBrainPage() {
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   }, [memories, search, filterCategory]);
 
-  const handleAddMemory = () => {
+  const handleAddMemory = async () => {
     if (!title.trim() && !content.trim()) return;
 
     const tags = tagsInput
@@ -88,26 +91,53 @@ export default function SecondBrainPage() {
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const newMemory: Memory = {
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      title: title.trim() || "Untitled",
-      category,
-      tags,
-      content: content.trim(),
-      createdAt: new Date().toISOString(),
-    };
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/memories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim() || "Untitled",
+          category,
+          tags,
+          content: content.trim(),
+          source: "dashboard",
+        }),
+      });
 
-    setMemories((prev) => [newMemory, ...prev]);
+      if (!res.ok) {
+        console.error("Failed to save memory", await res.text());
+        return;
+      }
 
-    // Reset form
-    setTitle("");
-    setContent("");
-    setTagsInput("");
+      const json = (await res.json()) as { memory: any };
+      const m = json.memory;
+      const newMemory: Memory = {
+        id: m.id,
+        title: m.title,
+        category: (m.category || "Other") as Memory["category"],
+        tags: Array.isArray(m.tags) ? m.tags : [],
+        content: m.content || "",
+        createdAt: m.created_at || new Date().toISOString(),
+      };
+
+      setMemories((prev) => [newMemory, ...prev]);
+
+      // Reset form
+      setTitle("");
+      setContent("");
+      setTagsInput("");
+    } catch (err) {
+      console.error("Failed to save memory", err);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleClearAll = () => {
-    if (!window.confirm("Clear ALL memories saved in this browser?")) return;
+    if (!window.confirm("Clear ALL memories loaded from Supabase?")) return;
     setMemories([]);
+    // Note: we don't delete from DB yet in v1
   };
 
   return (
@@ -191,7 +221,7 @@ export default function SecondBrainPage() {
                 type="button"
                 onClick={handleAddMemory}
                 className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-500 to-emerald-400 px-4 py-2 text-sm font-semibold text-zinc-950 shadow-lg shadow-purple-500/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={!title.trim() && !content.trim()}
+                disabled={(!title.trim() && !content.trim()) || isSaving}
               >
                 Save memory
               </button>
@@ -225,8 +255,8 @@ export default function SecondBrainPage() {
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[10px] text-zinc-400">
                 <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800/70 px-2 py-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  {memories.length} memories
+                  <span className={`h-1.5 w-1.5 rounded-full ${isLoading ? "bg-zinc-500" : "bg-emerald-400"}`} />
+                  {isLoading ? "Loading..." : `${memories.length} memories`}
                 </span>
               </div>
             </div>

@@ -56,9 +56,12 @@ export default function RootLayout({
                 >
                   Second brain
                 </a>
-                <span className="rounded-full bg-zinc-900/40 px-3 py-1 text-zinc-500">
-                  Habits (soon)
-                </span>
+                <a
+                  href="/habits"
+                  className="rounded-full bg-zinc-900/40 px-3 py-1 text-zinc-300 hover:bg-zinc-700/70"
+                >
+                  Habits
+                </a>
                 <span className="rounded-full bg-zinc-900/40 px-3 py-1 text-zinc-500">
                   Tasks (soon)
                 </span>
